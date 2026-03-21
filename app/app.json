@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "乙4学习助手",
+    "slug": "otsu4-study-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "bundleIdentifier": "com.liuyu.otsu4studyapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.liuyu.otsu4studyapp",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "locales": {
+      "zh": "./locales/zh-CN.json",
+      "zh-CN": "./locales/zh-CN.json",
+      "ja": "./locales/ja.json",
+      "en": "./locales/en.json"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "dd5a10fc-81f8-495e-b79e-c692f8ee4505"
+      }
+    },
+    "owner": "282207134"
+  }
+}

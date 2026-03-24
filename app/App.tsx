@@ -1,6 +1,7 @@
 import { Asset } from "expo-asset";
 import * as FileSystem from "expo-file-system/legacy";
 import { StatusBar } from "expo-status-bar";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState } from "react";
 import {
   Platform,
@@ -29,6 +30,7 @@ type UiText = {
     cards: string;
     quizzes: string;
     recent: string;
+    resetProgress: string;
   };
   chapters: {
     title: string;
@@ -73,6 +75,16 @@ type FavoriteCandidate = {
   explanation: string;
 };
 
+type PersistedState = {
+  language: Language;
+  tab: TabKey;
+  expandedSections: Record<string, boolean>;
+  answers: Record<string, number>;
+  favorites: Record<string, FavoriteItem>;
+};
+
+const STORAGE_KEY = "hazmat-app-state-v1";
+
 const UI_TEXT: Record<Language, UiText> = {
   zh: {
     appTitle: "危险物取扱者 乙种 4类",
@@ -84,6 +96,7 @@ const UI_TEXT: Record<Language, UiText> = {
       cards: "收藏",
       quizzes: "测验题",
       recent: "建议顺序：先看章节原文，收藏重点，再做测验。",
+      resetProgress: "重置学习进度",
     },
     chapters: {
       title: "按章节学习",
@@ -113,6 +126,7 @@ const UI_TEXT: Record<Language, UiText> = {
       cards: "收藏",
       quizzes: "問題",
       recent: "おすすめは、まず章を読み、重要点を收藏して、最後にクイズです。",
+      resetProgress: "学習進捗をリセット",
     },
     chapters: {
       title: "章ごとの学習",
@@ -142,6 +156,7 @@ const UI_TEXT: Record<Language, UiText> = {
       cards: "Favorites",
       quizzes: "Questions",
       recent: "Suggested flow: read chapters, favorite key points, then finish with quizzes.",
+      resetProgress: "Reset Learning Progress",
     },
     chapters: {
       title: "Study By Chapter",
@@ -364,10 +379,58 @@ export default function App() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [favorites, setFavorites] = useState<Record<string, FavoriteItem>>({});
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
     readSourceMarkdown().then(setContent).catch(() => setContent(""));
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const hydrateState = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        if (!stored || !isMounted) {
+          return;
+        }
+        const parsed = JSON.parse(stored) as Partial<PersistedState>;
+        if (parsed.language) setLanguage(parsed.language);
+        if (parsed.tab) setTab(parsed.tab);
+        if (parsed.expandedSections) setExpandedSections(parsed.expandedSections);
+        if (parsed.answers) setAnswers(parsed.answers);
+        if (parsed.favorites) setFavorites(parsed.favorites);
+      } catch {
+        // Ignore invalid cache and continue with defaults.
+      } finally {
+        if (isMounted) {
+          setIsHydrated(true);
+        }
+      }
+    };
+
+    hydrateState();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    const nextState: PersistedState = {
+      language,
+      tab,
+      expandedSections,
+      answers,
+      favorites,
+    };
+
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextState)).catch(() => {
+      // Silently ignore storage failures.
+    });
+  }, [isHydrated, language, tab, expandedSections, answers, favorites]);
 
   const copy = UI_TEXT[language];
   const sections = useMemo(() => parseSections(content), [content]);
@@ -390,6 +453,17 @@ export default function App() {
           explanation: candidate.explanation,
         },
       };
+    });
+  };
+
+  const resetLearningProgress = () => {
+    setLanguage("zh");
+    setTab("home");
+    setExpandedSections({});
+    setAnswers({});
+    setFavorites({});
+    AsyncStorage.removeItem(STORAGE_KEY).catch(() => {
+      // Silently ignore storage failures.
     });
   };
 
@@ -429,6 +503,9 @@ export default function App() {
                 <Metric label={copy.home.quizzes} value={String(QUIZ_ITEMS.length)} />
               </View>
               <Text style={styles.note}>{copy.home.recent}</Text>
+              <Pressable style={styles.resetButton} onPress={resetLearningProgress}>
+                <Text style={styles.resetButtonText}>{copy.home.resetProgress}</Text>
+              </Pressable>
             </View>
           )}
 
@@ -916,6 +993,21 @@ const styles = StyleSheet.create({
   },
   tabText: {
     color: "#f8fafc",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  resetButton: {
+    marginTop: 4,
+    alignSelf: "flex-start",
+    backgroundColor: "#7f1d1d",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  resetButtonText: {
+    color: "#fee2e2",
     fontSize: 12,
     fontWeight: "700",
   },

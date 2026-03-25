@@ -8,9 +8,19 @@
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "resizeMode": "cover",
+      "backgroundColor": "#0f172a"
     },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0f172a",
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "cover"
+        }
+      ]
+    ],
     "ios": {
       "bundleIdentifier": "com.liuyu.otsu4studyapp",
       "infoPlist": {

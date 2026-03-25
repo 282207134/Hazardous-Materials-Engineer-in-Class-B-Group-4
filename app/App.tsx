@@ -1,9 +1,11 @@
 import { Asset } from "expo-asset";
 import * as FileSystem from "expo-file-system/legacy";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Platform,
   Pressable,
   SafeAreaView,
@@ -31,6 +33,10 @@ type UiText = {
     quizzes: string;
     recent: string;
     resetProgress: string;
+    resetConfirmTitle: string;
+    resetConfirmMessage: string;
+    resetConfirmCancel: string;
+    resetConfirmOk: string;
   };
   chapters: {
     title: string;
@@ -85,11 +91,15 @@ type PersistedState = {
 
 const STORAGE_KEY = "hazmat-app-state-v1";
 
+SplashScreen.preventAutoHideAsync().catch(() => {
+  // Ignore repeated calls during fast refresh.
+});
+
 const UI_TEXT: Record<Language, UiText> = {
   zh: {
     appTitle: "危险物取扱者 乙种 4类",
     subtitle: "按章节分章浏览完整笔记，并配合记忆卡与测验复习",
-    tabs: { home: "首页", chapters: "章节", cards: "收藏", quiz: "测验" },
+    tabs: { home: "概览", chapters: "章节", cards: "收藏", quiz: "测验" },
     home: {
       welcome: "章节页按第1章到第4章完整展示原始笔记内容，适合先通读再复习。",
       days: "章节",
@@ -97,6 +107,10 @@ const UI_TEXT: Record<Language, UiText> = {
       quizzes: "测验题",
       recent: "建议顺序：先看章节原文，收藏重点，再做测验。",
       resetProgress: "重置学习进度",
+      resetConfirmTitle: "确认重置？",
+      resetConfirmMessage: "这将清空收藏、测验作答与章节展开状态（本机）。该操作无法撤销。",
+      resetConfirmCancel: "取消",
+      resetConfirmOk: "确定重置",
     },
     chapters: {
       title: "按章节学习",
@@ -119,7 +133,7 @@ const UI_TEXT: Record<Language, UiText> = {
   ja: {
     appTitle: "危険物取扱者 乙種 4類",
     subtitle: "章ごとに完全なノートを確認し、カードとクイズで復習",
-    tabs: { home: "ホーム", chapters: "章", cards: "收藏", quiz: "クイズ" },
+    tabs: { home: "概要", chapters: "章", cards: "收藏", quiz: "クイズ" },
     home: {
       welcome: "章ページでは第1章から第4章までの元ノートをそのまま章単位で読めます。",
       days: "章",
@@ -127,6 +141,10 @@ const UI_TEXT: Record<Language, UiText> = {
       quizzes: "問題",
       recent: "おすすめは、まず章を読み、重要点を收藏して、最後にクイズです。",
       resetProgress: "学習進捗をリセット",
+      resetConfirmTitle: "リセットしますか？",
+      resetConfirmMessage: "收藏・クイズ回答・章の展開状態（端末内）を消去します。元に戻せません。",
+      resetConfirmCancel: "キャンセル",
+      resetConfirmOk: "リセットする",
     },
     chapters: {
       title: "章ごとの学習",
@@ -149,7 +167,7 @@ const UI_TEXT: Record<Language, UiText> = {
   en: {
     appTitle: "Hazardous Materials Handler Class B Category 4",
     subtitle: "Read the full notes by chapter, then review with cards and quizzes",
-    tabs: { home: "Home", chapters: "Chapters", cards: "Favorites", quiz: "Quiz" },
+    tabs: { home: "Overview", chapters: "Chapters", cards: "Favorites", quiz: "Quiz" },
     home: {
       welcome: "The chapter screen now shows the complete source notes split into Chapter 1 through Chapter 4.",
       days: "Chapters",
@@ -157,6 +175,11 @@ const UI_TEXT: Record<Language, UiText> = {
       quizzes: "Questions",
       recent: "Suggested flow: read chapters, favorite key points, then finish with quizzes.",
       resetProgress: "Reset Learning Progress",
+      resetConfirmTitle: "Reset progress?",
+      resetConfirmMessage:
+        "This will clear favorites, quiz answers, and chapter expansion state (on this device). This can't be undone.",
+      resetConfirmCancel: "Cancel",
+      resetConfirmOk: "Reset",
     },
     chapters: {
       title: "Study By Chapter",
@@ -324,9 +347,7 @@ function localizeSections(sections: NoteDay[], language: Language): NoteDay[] {
 }
 
 function toKeyword(text: string): string {
-  const cleaned = text.replace(/^•\s*/, "").trim();
-  const match = cleaned.match(/^(.{1,24}?)([：:，。,.\s]|$)/);
-  return (match?.[1] ?? cleaned).trim();
+  return text.replace(/^•\s*/, "").trim();
 }
 
 function toExplanation(text: string): string {
@@ -374,15 +395,28 @@ async function readSourceMarkdown(): Promise<string> {
 
 export default function App() {
   const [language, setLanguage] = useState<Language>("zh");
-  const [tab, setTab] = useState<TabKey>("home");
+  const [tab, setTab] = useState<TabKey>("chapters");
   const [content, setContent] = useState("");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [favorites, setFavorites] = useState<Record<string, FavoriteItem>>({});
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isSourceReady, setIsSourceReady] = useState(false);
+  const [isMinSplashDelayDone, setIsMinSplashDelayDone] = useState(false);
 
   useEffect(() => {
-    readSourceMarkdown().then(setContent).catch(() => setContent(""));
+    readSourceMarkdown()
+      .then(setContent)
+      .catch(() => setContent(""))
+      .finally(() => setIsSourceReady(true));
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsMinSplashDelayDone(true);
+    }, 3000);
+
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -432,12 +466,19 @@ export default function App() {
     });
   }, [isHydrated, language, tab, expandedSections, answers, favorites]);
 
+  useEffect(() => {
+    if (!isHydrated || !isSourceReady || !isMinSplashDelayDone) return;
+    SplashScreen.hideAsync().catch(() => {
+      // Ignore splash hide failures.
+    });
+  }, [isHydrated, isSourceReady, isMinSplashDelayDone]);
+
   const copy = UI_TEXT[language];
   const sections = useMemo(() => parseSections(content), [content]);
   const localizedSections = useMemo(() => localizeSections(sections, language), [sections, language]);
   const favoriteList = useMemo(() => Object.values(favorites), [favorites]);
 
-  const toggleFavorite = (dayTitle: string, candidate: FavoriteCandidate) => {
+  const toggleFavorite = (candidate: FavoriteCandidate) => {
     setFavorites((prev) => {
       if (prev[candidate.id]) {
         const next = { ...prev };
@@ -449,22 +490,39 @@ export default function App() {
         ...prev,
         [candidate.id]: {
           id: candidate.id,
-          keyword: `${dayTitle} · ${candidate.keyword}`,
+          keyword: candidate.keyword,
           explanation: candidate.explanation,
         },
       };
     });
   };
 
-  const resetLearningProgress = () => {
+  const performResetLearningProgress = () => {
     setLanguage("zh");
-    setTab("home");
+    setTab("chapters");
     setExpandedSections({});
     setAnswers({});
     setFavorites({});
     AsyncStorage.removeItem(STORAGE_KEY).catch(() => {
       // Silently ignore storage failures.
     });
+  };
+
+  const resetLearningProgress = () => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `${copy.home.resetConfirmTitle}\n\n${copy.home.resetConfirmMessage}`
+      );
+      if (confirmed) {
+        performResetLearningProgress();
+      }
+      return;
+    }
+
+    Alert.alert(copy.home.resetConfirmTitle, copy.home.resetConfirmMessage, [
+      { text: copy.home.resetConfirmCancel, style: "cancel" },
+      { text: copy.home.resetConfirmOk, style: "destructive", onPress: performResetLearningProgress },
+    ]);
   };
 
   return (
@@ -503,9 +561,6 @@ export default function App() {
                 <Metric label={copy.home.quizzes} value={String(QUIZ_ITEMS.length)} />
               </View>
               <Text style={styles.note}>{copy.home.recent}</Text>
-              <Pressable style={styles.resetButton} onPress={resetLearningProgress}>
-                <Text style={styles.resetButtonText}>{copy.home.resetProgress}</Text>
-              </Pressable>
             </View>
           )}
 
@@ -540,8 +595,7 @@ export default function App() {
                             showFavorite={Boolean(favoriteCandidates[block.id])}
                             isFavorite={Boolean(favorites[block.id])}
                             onToggleFavorite={() =>
-                              favoriteCandidates[block.id] &&
-                              toggleFavorite(section.title, favoriteCandidates[block.id])
+                              favoriteCandidates[block.id] && toggleFavorite(favoriteCandidates[block.id])
                             }
                           />
                         ))}
@@ -560,8 +614,23 @@ export default function App() {
               {favoriteList.length === 0 && <Text style={styles.paragraph}>{copy.cards.empty}</Text>}
               {favoriteList.map((item) => (
                 <View key={item.id} style={styles.card}>
-                  <Text style={styles.cardTag}>{item.keyword}</Text>
-                  <Text style={styles.cardText}>{item.explanation}</Text>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.cardTag}>{item.keyword}</Text>
+                    <Pressable
+                      onPress={() =>
+                        setFavorites((prev) => {
+                          const next = { ...prev };
+                          delete next[item.id];
+                          return next;
+                        })
+                      }
+                      hitSlop={8}
+                      style={styles.cardStarButton}
+                    >
+                      <Text style={[styles.starText, styles.starTextActive]}>★</Text>
+                    </Pressable>
+                  </View>
+                  {item.explanation.length > 0 && <Text style={styles.cardText}>{item.explanation}</Text>}
                 </View>
               ))}
             </View>
@@ -615,8 +684,16 @@ export default function App() {
           )}
         </ScrollView>
 
+        {tab === "home" && (
+          <View style={styles.bottomActionBar}>
+            <Pressable style={styles.resetButton} onPress={resetLearningProgress}>
+              <Text style={styles.resetButtonText}>{copy.home.resetProgress}</Text>
+            </Pressable>
+          </View>
+        )}
+
         <View style={styles.bottomTabs}>
-          {(["home", "chapters", "cards", "quiz"] as TabKey[]).map((item) => (
+          {(["chapters", "cards", "quiz", "home"] as TabKey[]).map((item) => (
             <Pressable
               key={item}
               style={[styles.tabButton, tab === item && styles.tabButtonActive]}
@@ -904,12 +981,20 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 8,
   },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
   cardTag: {
     color: "#7dd3fc",
-    fontSize: 11,
+    fontSize: 15,
     fontWeight: "700",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
+    lineHeight: 22,
+    flex: 1,
+  },
+  cardStarButton: {
+    paddingTop: 1,
   },
   cardText: {
     color: "#e2e8f0",
@@ -975,6 +1060,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     gap: 8,
   },
+  bottomActionBar: {
+    backgroundColor: "#111827",
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
   bottomSpacer: {
     height: 14,
     backgroundColor: "#111827",
@@ -997,14 +1088,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   resetButton: {
-    marginTop: 4,
-    alignSelf: "flex-start",
+    alignSelf: "stretch",
     backgroundColor: "#7f1d1d",
     borderWidth: 1,
     borderColor: "#ef4444",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 8,
+    alignItems: "center",
   },
   resetButtonText: {
     color: "#fee2e2",
